@@ -1,0 +1,48 @@
+# Gradle files
+.gradle/
+build/
+local.properties
+gradle.properties.local
+
+# IDE files
+.idea/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+
+# Android specific
+*.apk
+*.aab
+*.ap_
+*.dex
+bin/
+gen/
+out/
+
+# Keystore files
+*.jks
+*.keystore
+
+# Log Files
+*.log
+
+# Proguard
+proguard/
+
+# Crash dumps
+*.dmp
+
+# Android Studio Navigation editor temp files
+.navigation/
+
+# Android Studio captures folder
+captures/
+
+# IntelliJ
+*.iml
+*.idea
+
+# External native build folder
+.externalNativeBuild/
+.cxx/

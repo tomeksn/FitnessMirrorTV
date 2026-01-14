@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FitnessMirrorTV</string>
+    <string name="searching_phone">Szukam telefonu...</string>
+    <string name="connecting">Łączenie...</string>
+    <string name="connected">Połączono</string>
+    <string name="disconnected">Rozłączono</string>
+    <string name="no_phone_found">Nie znaleziono telefonu</string>
+    <string name="retry">Spróbuj ponownie</string>
+    <string name="waiting_for_stream">Oczekiwanie na stream...</string>
+</resources>
