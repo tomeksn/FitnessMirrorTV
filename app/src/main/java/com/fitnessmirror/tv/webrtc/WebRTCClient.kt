@@ -55,11 +55,12 @@ class WebRTCClient(
             PeerConnectionFactory.initialize(initializationOptions)
 
             // Create PeerConnectionFactory with video decoder
+            // TV only receives video from phone, doesn't send - minimal encoder config
             val decoderFactory = DefaultVideoDecoderFactory(eglBase!!.eglBaseContext)
             val encoderFactory = DefaultVideoEncoderFactory(
                 eglBase!!.eglBaseContext,
-                true,  // Enable Intel VP8 encoder
-                true   // Enable H264 high profile
+                false,  // Disable VP8 encoder (not supported on this TV and not needed for receiving)
+                true    // Enable H264 high profile for compatibility
             )
 
             peerConnectionFactory = PeerConnectionFactory.builder()
