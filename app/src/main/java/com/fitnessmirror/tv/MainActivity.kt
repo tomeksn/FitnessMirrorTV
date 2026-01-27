@@ -61,7 +61,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun initializeViews() {
-        youtubePlayerView = findViewById(R.id.youtube_player)
+        // youtubePlayerView = findViewById(R.id.youtube_player)  // REMOVED for WebRTC debugging
         cameraSurface = findViewById(R.id.camera_surface)
         statusOverlay = findViewById(R.id.status_overlay)
         statusText = findViewById(R.id.status_text)
@@ -173,22 +173,16 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onVideoUrlReceived(videoId: String, currentTime: Float) {
-        Log.d(TAG, "Video URL received: $videoId at $currentTime")
-        runOnUiThread {
-            youtubePlayer?.loadVideo(videoId, currentTime)
-        }
+        Log.d(TAG, "Video URL received: $videoId at $currentTime (YouTube DISABLED)")
+        // YouTube player disabled for WebRTC debugging
+        // runOnUiThread {
+        //     youtubePlayer?.loadVideo(videoId, currentTime)
+        // }
     }
 
     override fun onVideoControlReceived(command: String, value: Float?) {
-        Log.d(TAG, "Video control received: $command, value: $value")
-        runOnUiThread {
-            when (command) {
-                "play" -> youtubePlayer?.play()
-                "pause" -> youtubePlayer?.pause()
-                "seek" -> value?.let { youtubePlayer?.seekTo(it) }
-                "stop" -> youtubePlayer?.pause()
-            }
-        }
+        Log.d(TAG, "Video control received: $command, value: $value (YouTube DISABLED)")
+        // YouTube player disabled for WebRTC debugging
     }
 
     override fun onError(error: String) {
