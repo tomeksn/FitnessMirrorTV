@@ -55,7 +55,7 @@ class MainActivity : AppCompatActivity(),
         setContentView(R.layout.activity_main)
 
         initializeViews()
-        initializeYouTubePlayer()
+        // initializeYouTubePlayer()  // DISABLED for WebRTC debugging
         initializeWebRTC()
         startPhoneDiscovery()
     }
@@ -68,8 +68,8 @@ class MainActivity : AppCompatActivity(),
         statusDetail = findViewById(R.id.status_detail)
         progressBar = findViewById(R.id.progress_bar)
 
-        // Add YouTube player to lifecycle
-        lifecycle.addObserver(youtubePlayerView)
+        // Add YouTube player to lifecycle - DISABLED for WebRTC debugging
+        // lifecycle.addObserver(youtubePlayerView)
     }
 
     private fun initializeYouTubePlayer() {
