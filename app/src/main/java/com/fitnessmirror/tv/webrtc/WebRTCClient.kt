@@ -8,7 +8,6 @@ import org.webrtc.PeerConnection.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.util.function.Predicate
 
 /**
  * WebRTC client for receiving video stream from FitnessMirror phone app.
@@ -62,11 +61,13 @@ class WebRTCClient(
             // Custom predicate - accept ALL hardware decoders (bypass WebRTC whitelist)
             // WebRTC by default only allows: OMX.qcom., OMX.Exynos., OMX.Intel., OMX.MTK.
             // BeyondTV and other TVs may use: OMX.amlogic., OMX.rk., OMX.hisi., c2.xxx
-            val codecAllowedPredicate = Predicate<MediaCodecInfo> { codecInfo ->
-                val name = codecInfo.name
-                val isSoftware = name.startsWith("OMX.google.") || name.startsWith("c2.android.")
-                Log.d(TAG, "Codec predicate check: $name -> hardware=${!isSoftware}")
-                !isSoftware  // Accept all hardware decoders, reject software
+            val codecAllowedPredicate = object : Predicate<MediaCodecInfo> {
+                override fun test(codecInfo: MediaCodecInfo): Boolean {
+                    val name = codecInfo.name
+                    val isSoftware = name.startsWith("OMX.google.") || name.startsWith("c2.android.")
+                    Log.d(TAG, "Codec predicate check: $name -> hardware=${!isSoftware}")
+                    return !isSoftware  // Accept all hardware decoders, reject software
+                }
             }
 
             // Hardware decoder factory with permissive predicate
