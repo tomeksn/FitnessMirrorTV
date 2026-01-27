@@ -1,12 +1,14 @@
 package com.fitnessmirror.tv.webrtc
 
 import android.content.Context
+import android.media.MediaCodecInfo
 import android.util.Log
 import org.webrtc.*
 import org.webrtc.PeerConnection.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.util.function.Predicate
 
 /**
  * WebRTC client for receiving video stream from FitnessMirror phone app.
@@ -56,7 +58,54 @@ class WebRTCClient(
 
             // Create PeerConnectionFactory with video decoder
             // TV only receives video from phone, doesn't send - minimal encoder config
-            val decoderFactory = DefaultVideoDecoderFactory(eglBase!!.eglBaseContext)
+
+            // Custom predicate - accept ALL hardware decoders (bypass WebRTC whitelist)
+            // WebRTC by default only allows: OMX.qcom., OMX.Exynos., OMX.Intel., OMX.MTK.
+            // BeyondTV and other TVs may use: OMX.amlogic., OMX.rk., OMX.hisi., c2.xxx
+            val codecAllowedPredicate = Predicate<MediaCodecInfo> { codecInfo ->
+                val name = codecInfo.name
+                val isSoftware = name.startsWith("OMX.google.") || name.startsWith("c2.android.")
+                Log.d(TAG, "Codec predicate check: $name -> hardware=${!isSoftware}")
+                !isSoftware  // Accept all hardware decoders, reject software
+            }
+
+            // Hardware decoder factory with permissive predicate
+            val hardwareDecoderFactory = HardwareVideoDecoderFactory(
+                eglBase!!.eglBaseContext,
+                codecAllowedPredicate
+            )
+
+            // Software decoder factory as fallback
+            val softwareDecoderFactory = SoftwareVideoDecoderFactory()
+
+            // Combined factory: try hardware first, fall back to software
+            val decoderFactory = object : VideoDecoderFactory {
+                override fun createDecoder(codecInfo: VideoCodecInfo): VideoDecoder? {
+                    Log.d(TAG, "Creating decoder for codec: ${codecInfo.name}")
+                    val hwDecoder = hardwareDecoderFactory.createDecoder(codecInfo)
+                    if (hwDecoder != null) {
+                        Log.d(TAG, "Using hardware decoder for ${codecInfo.name}")
+                        return hwDecoder
+                    }
+                    val swDecoder = softwareDecoderFactory.createDecoder(codecInfo)
+                    if (swDecoder != null) {
+                        Log.d(TAG, "Using software decoder for ${codecInfo.name}")
+                        return swDecoder
+                    }
+                    Log.w(TAG, "No decoder available for ${codecInfo.name}")
+                    return null
+                }
+
+                override fun getSupportedCodecs(): Array<VideoCodecInfo> {
+                    val hwCodecs = hardwareDecoderFactory.supportedCodecs
+                    val swCodecs = softwareDecoderFactory.supportedCodecs
+                    Log.d(TAG, "Hardware codecs available: ${hwCodecs.map { it.name }}")
+                    Log.d(TAG, "Software codecs available: ${swCodecs.map { it.name }}")
+                    // Combine both, hardware first for priority
+                    return hwCodecs + swCodecs
+                }
+            }
+
             val encoderFactory = DefaultVideoEncoderFactory(
                 eglBase!!.eglBaseContext,
                 false,  // Disable VP8 encoder (not supported on this TV and not needed for receiving)
