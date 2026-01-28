@@ -179,6 +179,53 @@ class WebRTCClient(
     }
 
     /**
+     * Filter AV1 codec from SDP to force VP9/H.264 usage
+     * AV1 has no hardware decoder on TV (only slow software decoder)
+     */
+    private fun filterAv1FromSdp(sdp: String): String {
+        val lines = sdp.split("\r\n").toMutableList()
+        val filteredLines = mutableListOf<String>()
+        var av1PayloadType: String? = null
+
+        // First pass: find AV1 payload type
+        for (line in lines) {
+            if (line.contains("a=rtpmap:") && line.contains("AV1/90000")) {
+                val match = Regex("a=rtpmap:(\\d+) AV1").find(line)
+                av1PayloadType = match?.groupValues?.get(1)
+                Log.d(TAG, "Found AV1 payload type to filter: $av1PayloadType")
+                break
+            }
+        }
+
+        if (av1PayloadType == null) {
+            Log.d(TAG, "No AV1 codec found in SDP, returning unchanged")
+            return sdp
+        }
+
+        // Second pass: filter out AV1 lines
+        for (line in lines) {
+            val skipLine = (
+                line.contains("a=rtpmap:$av1PayloadType ") ||
+                line.contains("a=rtcp-fb:$av1PayloadType ") ||
+                line.contains("a=fmtp:$av1PayloadType ")
+            )
+
+            if (!skipLine) {
+                if (line.startsWith("m=video") && av1PayloadType != null) {
+                    val filtered = line.replace(" $av1PayloadType", "")
+                    filteredLines.add(filtered)
+                } else {
+                    filteredLines.add(line)
+                }
+            }
+        }
+
+        val result = filteredLines.joinToString("\r\n")
+        Log.d(TAG, "SDP filtered - removed AV1 codec, forcing VP9/H.264")
+        return result
+    }
+
+    /**
      * Handle incoming SDP offer from phone
      * Creates peer connection if needed and generates answer
      */
@@ -192,8 +239,11 @@ class WebRTCClient(
                     createPeerConnection()
                 }
 
-                // Filter VP8 from received offer to force H.264 for better TV compatibility
-                val filteredSdp = filterVp8FromSdp(sdp)
+                // Filter VP8 and AV1 from received offer for better TV compatibility
+                // VP8: less efficient than H.264
+                // AV1: TV has only software decoder (very slow, causes high latency)
+                val filteredVp8 = filterVp8FromSdp(sdp)
+                val filteredSdp = filterAv1FromSdp(filteredVp8)
 
                 // Set remote description (offer) with filtered SDP
                 val offer = SessionDescription(SessionDescription.Type.OFFER, filteredSdp)
