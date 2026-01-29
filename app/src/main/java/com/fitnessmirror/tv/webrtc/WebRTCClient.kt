@@ -29,6 +29,18 @@ class WebRTCClient(
         fun onError(error: String)
     }
 
+    /**
+     * Data class holding WebRTC statistics for display
+     */
+    data class WebRTCStats(
+        val rttMs: Double?,
+        val jitterMs: Double?,
+        val packetsLost: Long?,
+        val framesDecoded: Long?,
+        val framesDropped: Long?,
+        val framesPerSecond: Double?
+    )
+
     private var peerConnectionFactory: PeerConnectionFactory? = null
     private var peerConnection: PeerConnection? = null
     private var eglBase: EglBase? = null
@@ -442,6 +454,52 @@ class WebRTCClient(
      */
     fun isConnected(): Boolean {
         return peerConnection?.connectionState() == PeerConnectionState.CONNECTED
+    }
+
+    /**
+     * Get current WebRTC connection statistics
+     * Uses the PeerConnection.getStats() API to retrieve real-time metrics
+     *
+     * @param callback Called with stats when available, null if no connection
+     */
+    fun getStats(callback: (WebRTCStats?) -> Unit) {
+        val pc = peerConnection
+        if (pc == null || pc.connectionState() != PeerConnectionState.CONNECTED) {
+            callback(null)
+            return
+        }
+
+        pc.getStats { report ->
+            var rttMs: Double? = null
+            var jitterMs: Double? = null
+            var packetsLost: Long? = null
+            var framesDecoded: Long? = null
+            var framesDropped: Long? = null
+            var framesPerSecond: Double? = null
+
+            for (stats in report.statsMap.values) {
+                when (stats.type) {
+                    "candidate-pair" -> {
+                        val members = stats.members
+                        if (members["nominated"] as? Boolean == true) {
+                            rttMs = (members["currentRoundTripTime"] as? Double)?.times(1000)
+                        }
+                    }
+                    "inbound-rtp" -> {
+                        val members = stats.members
+                        if (members["kind"] as? String == "video") {
+                            jitterMs = (members["jitter"] as? Double)?.times(1000)
+                            packetsLost = (members["packetsLost"] as? Number)?.toLong()
+                            framesDecoded = (members["framesDecoded"] as? Number)?.toLong()
+                            framesDropped = (members["framesDropped"] as? Number)?.toLong()
+                            framesPerSecond = members["framesPerSecond"] as? Double
+                        }
+                    }
+                }
+            }
+
+            callback(WebRTCStats(rttMs, jitterMs, packetsLost, framesDecoded, framesDropped, framesPerSecond))
+        }
     }
 
     /**

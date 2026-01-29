@@ -21,6 +21,21 @@
         android:layout_margin="24dp"
         android:visibility="gone" />
 
+    <!-- Latency Stats Overlay - Top Left Corner -->
+    <TextView
+        android:id="@+id/latency_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_margin="16dp"
+        android:padding="8dp"
+        android:background="#80000000"
+        android:textColor="#00FF00"
+        android:textSize="14sp"
+        android:fontFamily="monospace"
+        android:visibility="gone"
+        android:text="RTT: --ms | Jitter: --ms" />
+
     <!-- Status overlay -->
     <LinearLayout
         android:id="@+id/status_overlay"

@@ -1,12 +1,15 @@
 package com.fitnessmirror.tv
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import java.util.Locale
 import com.fitnessmirror.tv.network.PhoneDiscovery
 import com.fitnessmirror.tv.network.SignalingClient
 import com.fitnessmirror.tv.webrtc.WebRTCClient
@@ -37,6 +40,12 @@ class MainActivity : AppCompatActivity(),
     private lateinit var statusText: TextView
     private lateinit var statusDetail: TextView
     private lateinit var progressBar: ProgressBar
+    private lateinit var latencyText: TextView
+
+    // Stats Timer
+    private var statsHandler: Handler? = null
+    private var statsRunnable: Runnable? = null
+    private val STATS_UPDATE_INTERVAL_MS = 1000L
 
     // YouTube Player
     private var youtubePlayer: YouTubePlayer? = null
@@ -70,6 +79,9 @@ class MainActivity : AppCompatActivity(),
 
         // Add YouTube player to lifecycle - DISABLED for WebRTC debugging
         // lifecycle.addObserver(youtubePlayerView)
+
+        // Latency stats display
+        latencyText = findViewById(R.id.latency_text)
     }
 
     private fun initializeYouTubePlayer() {
@@ -122,6 +134,44 @@ class MainActivity : AppCompatActivity(),
         runOnUiThread {
             statusOverlay.visibility = View.VISIBLE
             cameraSurface.visibility = View.GONE
+        }
+    }
+
+    private fun startStatsCollection() {
+        stopStatsCollection()
+        statsHandler = Handler(Looper.getMainLooper())
+        statsRunnable = object : Runnable {
+            override fun run() {
+                collectAndDisplayStats()
+                statsHandler?.postDelayed(this, STATS_UPDATE_INTERVAL_MS)
+            }
+        }
+        statsHandler?.post(statsRunnable!!)
+        latencyText.visibility = View.VISIBLE
+        Log.d(TAG, "Stats collection started")
+    }
+
+    private fun stopStatsCollection() {
+        statsRunnable?.let { statsHandler?.removeCallbacks(it) }
+        statsHandler = null
+        statsRunnable = null
+        runOnUiThread { latencyText.visibility = View.GONE }
+        Log.d(TAG, "Stats collection stopped")
+    }
+
+    private fun collectAndDisplayStats() {
+        webrtcClient?.getStats { stats ->
+            runOnUiThread {
+                if (stats != null) {
+                    val rtt = stats.rttMs?.let { String.format(Locale.US, "%.0f", it) } ?: "--"
+                    val jitter = stats.jitterMs?.let { String.format(Locale.US, "%.1f", it) } ?: "--"
+                    val fps = stats.framesPerSecond?.let { String.format(Locale.US, "%.1f", it) } ?: "--"
+                    val dropped = stats.framesDropped?.toString() ?: "--"
+                    latencyText.text = "RTT: ${rtt}ms | Jitter: ${jitter}ms\nFPS: $fps | Dropped: $dropped"
+                } else {
+                    latencyText.text = "Stats: unavailable"
+                }
+            }
         }
     }
 
@@ -212,9 +262,11 @@ class MainActivity : AppCompatActivity(),
                 PeerConnection.PeerConnectionState.CONNECTED -> {
                     updateStatus("Połączono", "Stream aktywny")
                     showCamera()
+                    startStatsCollection()
                 }
                 PeerConnection.PeerConnectionState.DISCONNECTED,
                 PeerConnection.PeerConnectionState.FAILED -> {
+                    stopStatsCollection()
                     hideCamera()
                     updateStatus("Rozłączono", "Utracono połączenie WebRTC")
                 }
@@ -233,6 +285,7 @@ class MainActivity : AppCompatActivity(),
     override fun onDestroy() {
         super.onDestroy()
 
+        stopStatsCollection()
         phoneDiscovery?.stopListening()
         signalingClient?.disconnect()
         webrtcClient?.close()
