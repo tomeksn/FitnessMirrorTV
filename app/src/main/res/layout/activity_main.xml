@@ -5,12 +5,10 @@
     android:layout_height="match_parent"
     android:background="@android:color/black">
 
-    <!-- YouTube Player - REMOVED for WebRTC debugging
     <com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
         android:id="@+id/youtube_player"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
-    -->
 
     <!-- Camera WebRTC - PIP in bottom right corner -->
     <org.webrtc.SurfaceViewRenderer
