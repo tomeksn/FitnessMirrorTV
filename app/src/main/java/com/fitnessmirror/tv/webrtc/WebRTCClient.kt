@@ -46,6 +46,9 @@ class WebRTCClient(
     private var eglBase: EglBase? = null
     private var surfaceViewRenderer: SurfaceViewRenderer? = null
 
+    // Buffer ICE candidates received before peer connection is created
+    private val pendingIceCandidates = mutableListOf<IceCandidate>()
+
     private val coroutineScope = CoroutineScope(Dispatchers.Main)
 
     /**
@@ -296,6 +299,8 @@ class WebRTCClient(
                 // Create peer connection if not exists
                 if (peerConnection == null) {
                     createPeerConnection()
+                    // Drain any ICE candidates that arrived before peer connection was ready
+                    drainPendingIceCandidates()
                 }
 
                 // Filter VP8, AV1, VP9 from received offer - force H.264 Baseline only
@@ -481,12 +486,33 @@ class WebRTCClient(
     }
 
     /**
-     * Add ICE candidate received from phone
+     * Add ICE candidate received from phone.
+     * Buffers candidates if peer connection doesn't exist yet (race condition fix).
      */
     fun addIceCandidate(sdpMid: String, sdpMLineIndex: Int, candidate: String) {
-        Log.d(TAG, "Adding ICE candidate")
         val iceCandidate = IceCandidate(sdpMid, sdpMLineIndex, candidate)
-        peerConnection?.addIceCandidate(iceCandidate)
+        val pc = peerConnection
+        if (pc != null) {
+            pc.addIceCandidate(iceCandidate)
+            Log.d(TAG, "Added ICE candidate directly")
+        } else {
+            synchronized(pendingIceCandidates) {
+                pendingIceCandidates.add(iceCandidate)
+            }
+            Log.d(TAG, "Buffered ICE candidate (peer connection not ready, buffered=${pendingIceCandidates.size})")
+        }
+    }
+
+    private fun drainPendingIceCandidates() {
+        synchronized(pendingIceCandidates) {
+            if (pendingIceCandidates.isNotEmpty()) {
+                Log.i(TAG, "Draining ${pendingIceCandidates.size} buffered ICE candidates")
+                for (candidate in pendingIceCandidates) {
+                    peerConnection?.addIceCandidate(candidate)
+                }
+                pendingIceCandidates.clear()
+            }
+        }
     }
 
     /**
@@ -549,6 +575,11 @@ class WebRTCClient(
         Log.d(TAG, "Closing WebRTC client")
 
         try {
+            // Clear pending candidates
+            synchronized(pendingIceCandidates) {
+                pendingIceCandidates.clear()
+            }
+
             // Clear renderer
             surfaceViewRenderer?.release()
             surfaceViewRenderer = null
