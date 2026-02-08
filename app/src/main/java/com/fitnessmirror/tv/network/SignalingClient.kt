@@ -16,7 +16,8 @@ class SignalingClient(
     companion object {
         private const val TAG = "SignalingClient"
         private const val PING_INTERVAL_SECONDS = 30L
-        private const val CONNECTION_TIMEOUT_SECONDS = 30L
+        private const val CONNECTION_TIMEOUT_SECONDS = 10L
+        private const val MAX_CONNECT_ATTEMPTS = 3
     }
 
     interface SignalingListener {
@@ -37,11 +38,49 @@ class SignalingClient(
         .build()
 
     private var serverUrl: String = ""
+    private var connectAttempt = 0
+    private var targetIp: String = ""
+    private var targetPort: Int = 0
 
     fun connect(ip: String, port: Int) {
-        serverUrl = "ws://$ip:$port/stream"
-        Log.i(TAG, "Connecting to $serverUrl")
+        targetIp = ip
+        targetPort = port
+        connectAttempt = 0
+        attemptConnect()
+    }
 
+    private fun attemptConnect() {
+        connectAttempt++
+        serverUrl = "ws://$targetIp:$targetPort/stream"
+        Log.i(TAG, "Connection attempt $connectAttempt/$MAX_CONNECT_ATTEMPTS to $serverUrl")
+
+        // HTTP pre-check: verify server is reachable before WebSocket
+        val checkUrl = "http://$targetIp:$targetPort/api/status"
+        Log.d(TAG, "Pre-check: GET $checkUrl")
+
+        val checkRequest = Request.Builder().url(checkUrl).build()
+        client.newCall(checkRequest).enqueue(object : Callback {
+            override fun onResponse(call: Call, response: Response) {
+                response.close()
+                Log.i(TAG, "Pre-check OK (HTTP ${response.code}) - proceeding with WebSocket")
+                connectWebSocket()
+            }
+
+            override fun onFailure(call: Call, e: java.io.IOException) {
+                Log.w(TAG, "Pre-check failed: ${e.message}")
+                if (connectAttempt < MAX_CONNECT_ATTEMPTS) {
+                    Log.d(TAG, "Retrying in ${connectAttempt * 2}s...")
+                    Thread.sleep(connectAttempt * 2000L)
+                    attemptConnect()
+                } else {
+                    Log.e(TAG, "Server not reachable after $MAX_CONNECT_ATTEMPTS attempts")
+                    listener.onError("Serwer nieosiągalny: ${e.message}")
+                }
+            }
+        })
+    }
+
+    private fun connectWebSocket() {
         val request = Request.Builder()
             .url(serverUrl)
             .build()

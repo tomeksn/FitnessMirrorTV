@@ -58,6 +58,8 @@ class MainActivity : AppCompatActivity(),
     // State
     private var isConnected = false
     private var connectedPhoneIp: String? = null
+    private var connectionRetryCount = 0
+    private val MAX_CONNECTION_RETRIES = 5
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -193,6 +195,7 @@ class MainActivity : AppCompatActivity(),
         Log.d(TAG, "WebSocket connected")
         updateStatus(getString(R.string.connected), "Oczekiwanie na WebRTC offer...")
         isConnected = true
+        connectionRetryCount = 0
     }
 
     override fun onDisconnected() {
@@ -242,7 +245,28 @@ class MainActivity : AppCompatActivity(),
 
     override fun onError(error: String) {
         Log.e(TAG, "Signaling error: $error")
-        updateStatus("Błąd połączenia", error)
+        isConnected = false
+
+        // Cleanup failed connection
+        signalingClient?.disconnect()
+        signalingClient = null
+
+        connectionRetryCount++
+        if (connectionRetryCount <= MAX_CONNECTION_RETRIES) {
+            val delaySec = minOf(connectionRetryCount * 2, 10)
+            updateStatus("Błąd połączenia", "$error - ponowna próba za ${delaySec}s (${connectionRetryCount}/$MAX_CONNECTION_RETRIES)")
+            Log.d(TAG, "Retrying discovery in ${delaySec}s (attempt $connectionRetryCount/$MAX_CONNECTION_RETRIES)")
+
+            lifecycleScope.launch(Dispatchers.IO) {
+                Thread.sleep(delaySec * 1000L)
+                runOnUiThread {
+                    startPhoneDiscovery()
+                }
+            }
+        } else {
+            updateStatus("Błąd połączenia", "Nie udało się połączyć po $MAX_CONNECTION_RETRIES próbach. Uruchom ponownie.")
+            Log.e(TAG, "Max connection retries reached ($MAX_CONNECTION_RETRIES)")
+        }
     }
 
     // WebRTCClient.WebRTCClientCallback
