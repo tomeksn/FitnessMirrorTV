@@ -122,7 +122,7 @@ class WebRTCClient(
             val encoderFactory = DefaultVideoEncoderFactory(
                 eglBase!!.eglBaseContext,
                 false,  // Disable VP8 encoder (not supported on this TV and not needed for receiving)
-                true    // Enable H264 high profile for compatibility
+                false   // Disable H264 High Profile - Realtek only supports Baseline
             )
 
             peerConnectionFactory = PeerConnectionFactory.builder()
@@ -238,6 +238,53 @@ class WebRTCClient(
     }
 
     /**
+     * Filter VP9 codec from SDP to force H.264 Baseline only
+     * VP9 hardware decoding on budget Realtek TVs is often buggy or software-only
+     */
+    private fun filterVp9FromSdp(sdp: String): String {
+        val lines = sdp.split("\r\n").toMutableList()
+        val filteredLines = mutableListOf<String>()
+        var vp9PayloadType: String? = null
+
+        // First pass: find VP9 payload type
+        for (line in lines) {
+            if (line.contains("a=rtpmap:") && line.contains("VP9/90000")) {
+                val match = Regex("a=rtpmap:(\\d+) VP9").find(line)
+                vp9PayloadType = match?.groupValues?.get(1)
+                Log.d(TAG, "Found VP9 payload type to filter: $vp9PayloadType")
+                break
+            }
+        }
+
+        if (vp9PayloadType == null) {
+            Log.d(TAG, "No VP9 codec found in SDP, returning unchanged")
+            return sdp
+        }
+
+        // Second pass: filter out VP9 lines
+        for (line in lines) {
+            val skipLine = (
+                line.contains("a=rtpmap:$vp9PayloadType ") ||
+                line.contains("a=rtcp-fb:$vp9PayloadType ") ||
+                line.contains("a=fmtp:$vp9PayloadType ")
+            )
+
+            if (!skipLine) {
+                if (line.startsWith("m=video") && vp9PayloadType != null) {
+                    val filtered = line.replace(" $vp9PayloadType", "")
+                    filteredLines.add(filtered)
+                } else {
+                    filteredLines.add(line)
+                }
+            }
+        }
+
+        val result = filteredLines.joinToString("\r\n")
+        Log.d(TAG, "SDP filtered - removed VP9 codec, forcing H.264 Baseline only")
+        return result
+    }
+
+    /**
      * Handle incoming SDP offer from phone
      * Creates peer connection if needed and generates answer
      */
@@ -251,11 +298,13 @@ class WebRTCClient(
                     createPeerConnection()
                 }
 
-                // Filter VP8 and AV1 from received offer for better TV compatibility
+                // Filter VP8, AV1, VP9 from received offer - force H.264 Baseline only
                 // VP8: less efficient than H.264
                 // AV1: TV has only software decoder (very slow, causes high latency)
+                // VP9: Realtek HW decoding is buggy, causes jitter
                 val filteredVp8 = filterVp8FromSdp(sdp)
-                val filteredSdp = filterAv1FromSdp(filteredVp8)
+                val filteredAv1 = filterAv1FromSdp(filteredVp8)
+                val filteredSdp = filterVp9FromSdp(filteredAv1)
 
                 // Set remote description (offer) with filtered SDP
                 val offer = SessionDescription(SessionDescription.Type.OFFER, filteredSdp)
@@ -328,28 +377,19 @@ class WebRTCClient(
     private fun createPeerConnection() {
         Log.d(TAG, "Creating peer connection")
 
-        // ICE servers configuration (STUN + TURN for relay when direct connection fails)
+        // LAN-only ICE servers - no TURN needed for local network streaming
+        // TURN servers removed - they cause connection instability on LAN
+        // by replacing working direct host candidates with slow relay paths
         val iceServers = listOf(
-            IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-            // TURN server for relay when direct connection fails
-            IceServer.builder("turn:openrelay.metered.ca:80")
-                .setUsername("openrelayproject")
-                .setPassword("openrelayproject")
-                .createIceServer(),
-            IceServer.builder("turn:openrelay.metered.ca:443")
-                .setUsername("openrelayproject")
-                .setPassword("openrelayproject")
-                .createIceServer(),
-            IceServer.builder("turn:openrelay.metered.ca:443?transport=tcp")
-                .setUsername("openrelayproject")
-                .setPassword("openrelayproject")
-                .createIceServer()
+            IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
         )
 
         // RTCConfiguration
         val rtcConfig = RTCConfiguration(iceServers).apply {
             sdpSemantics = SdpSemantics.UNIFIED_PLAN
-            continualGatheringPolicy = ContinualGatheringPolicy.GATHER_CONTINUALLY
+            // GATHER_ONCE: Stop gathering after initial candidates found
+            // Prevents late TURN candidates from disrupting working connection
+            continualGatheringPolicy = ContinualGatheringPolicy.GATHER_ONCE
         }
 
         // Create peer connection
