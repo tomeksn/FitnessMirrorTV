@@ -15,6 +15,7 @@ import com.fitnessmirror.tv.network.SignalingClient
 import com.fitnessmirror.tv.webrtc.WebRTCClient
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -86,12 +87,22 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun initializeYouTubePlayer() {
-        youtubePlayerView.addYouTubePlayerListener(object : AbstractYouTubePlayerListener() {
+        // Disable automatic initialization to use IFramePlayerOptions
+        youtubePlayerView.enableAutomaticInitialization = false
+
+        val iFramePlayerOptions = IFramePlayerOptions.Builder(this)
+            .controls(1)
+            .rel(0)
+            .ivLoadPolicy(3)
+            .ccLoadPolicy(1)
+            .build()
+
+        youtubePlayerView.initialize(object : AbstractYouTubePlayerListener() {
             override fun onReady(player: YouTubePlayer) {
                 Log.d(TAG, "YouTube player ready")
                 youtubePlayer = player
             }
-        })
+        }, iFramePlayerOptions)
     }
 
     private fun initializeWebRTC() {

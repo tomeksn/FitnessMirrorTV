@@ -46,7 +46,8 @@ dependencies {
     implementation 'androidx.leanback:leanback:1.0.0'
 
     // YouTube Player - same library as FitnessMirrorWebRTC
-    implementation 'com.pierfrancescosoffritti.androidyoutubeplayer:core:12.1.0'
+    // Updated to 13.0.0 to fix error 152-15 (VIDEO_NOT_PLAYABLE_IN_EMBEDDED_PLAYER)
+    implementation 'com.pierfrancescosoffritti.androidyoutubeplayer:core:13.0.0'
 
     // WebRTC - same library as FitnessMirrorWebRTC
     implementation 'io.getstream:stream-webrtc-android:1.1.1'
