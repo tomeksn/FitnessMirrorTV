@@ -182,6 +182,15 @@ class SignalingClient(
         sendMessage(json.toString())
     }
 
+    fun sendQualityControl(action: String) {
+        val json = JSONObject().apply {
+            put("type", "QUALITY_CONTROL")
+            put("action", action)  // "decrease" or "increase"
+        }
+        sendMessage(json.toString())
+        Log.d(TAG, "Sent QUALITY_CONTROL: $action")
+    }
+
     private fun sendMessage(message: String) {
         webSocket?.let { ws ->
             val success = ws.send(message)

@@ -64,6 +64,12 @@ class MainActivity : AppCompatActivity(),
     private var connectionRetryCount = 0
     private val MAX_CONNECTION_RETRIES = 5
 
+    // Adaptive quality control
+    private var consecutiveGoodFpsCount = 0
+    private var lastQualityChangeTime = 0L
+    private val QUALITY_DECREASE_COOLDOWN_MS = 15_000L  // min 15s between decreases
+    private val QUALITY_INCREASE_COOLDOWN_MS = 30_000L   // min 30s between increases
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -188,6 +194,31 @@ class MainActivity : AppCompatActivity(),
                     val fps = stats.framesPerSecond?.let { String.format(Locale.US, "%.1f", it) } ?: "--"
                     val dropped = stats.framesDropped?.toString() ?: "--"
                     latencyText.text = "RTT: ${rtt}ms | Jitter: ${jitter}ms\nFPS: $fps | Dropped: $dropped"
+
+                    // Adaptive quality control: detect stream stalls and request FPS changes
+                    val currentFps = stats.framesPerSecond ?: 0.0
+                    val now = System.currentTimeMillis()
+
+                    if (currentFps < 12.0) {
+                        // Stall detected - request quality decrease
+                        consecutiveGoodFpsCount = 0
+                        if (now - lastQualityChangeTime > QUALITY_DECREASE_COOLDOWN_MS) {
+                            Log.d(TAG, "Stream stall detected (fps=$currentFps) - requesting quality decrease")
+                            signalingClient?.sendQualityControl("decrease")
+                            lastQualityChangeTime = now
+                        }
+                    } else if (currentFps >= 18.0) {
+                        consecutiveGoodFpsCount++
+                        if (consecutiveGoodFpsCount >= 8 && now - lastQualityChangeTime > QUALITY_INCREASE_COOLDOWN_MS) {
+                            Log.d(TAG, "Stream stable for 8s (fps=$currentFps) - requesting quality increase")
+                            signalingClient?.sendQualityControl("increase")
+                            lastQualityChangeTime = now
+                            consecutiveGoodFpsCount = 0
+                        }
+                    } else {
+                        // fps 12-18: neutral zone, stop counting good streaks
+                        consecutiveGoodFpsCount = 0
+                    }
                 } else {
                     latencyText.text = "Stats: unavailable"
                 }
