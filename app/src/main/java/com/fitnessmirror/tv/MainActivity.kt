@@ -50,6 +50,8 @@ class MainActivity : AppCompatActivity(),
 
     // YouTube Player
     private var youtubePlayer: YouTubePlayer? = null
+    private var pendingVideoId: String? = null
+    private var pendingVideoTime: Float = 0f
 
     // Network & WebRTC
     private var phoneDiscovery: PhoneDiscovery? = null
@@ -101,6 +103,12 @@ class MainActivity : AppCompatActivity(),
             override fun onReady(player: YouTubePlayer) {
                 Log.d(TAG, "YouTube player ready")
                 youtubePlayer = player
+                // Load video that arrived before player was ready
+                pendingVideoId?.let { videoId ->
+                    Log.d(TAG, "Loading buffered video: $videoId at $pendingVideoTime")
+                    player.loadVideo(videoId, pendingVideoTime)
+                    pendingVideoId = null
+                }
             }
         }, iFramePlayerOptions)
     }
@@ -238,7 +246,14 @@ class MainActivity : AppCompatActivity(),
     override fun onVideoUrlReceived(videoId: String, currentTime: Float) {
         Log.d(TAG, "Video URL received: $videoId at $currentTime")
         runOnUiThread {
-            youtubePlayer?.loadVideo(videoId, currentTime)
+            val player = youtubePlayer
+            if (player != null) {
+                player.loadVideo(videoId, currentTime)
+            } else {
+                Log.d(TAG, "YouTube player not ready - buffering video: $videoId")
+                pendingVideoId = videoId
+                pendingVideoTime = currentTime
+            }
         }
     }
 

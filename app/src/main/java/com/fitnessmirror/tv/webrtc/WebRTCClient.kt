@@ -61,8 +61,10 @@ class WebRTCClient(
         try {
             surfaceViewRenderer = renderer
 
-            // Create EGL context
-            eglBase = EglBase.create()
+            // Create EGL context with CONFIG_PLAIN to avoid EGL_BAD_ATTRIBUTE on budget TVs.
+            // CONFIG_RGBA (default) may request EGL_RECORDABLE_ANDROID which some Realtek/Amlogic
+            // EGL drivers reject, breaking HardwareVideoDecoderFactory initialization.
+            eglBase = EglBase.create(null, EglBase.CONFIG_PLAIN)
 
             // Initialize PeerConnectionFactory
             val initializationOptions = PeerConnectionFactory.InitializationOptions.builder(context)
