@@ -410,6 +410,9 @@ class WebRTCClient(
 
                 override fun onConnectionChange(newState: PeerConnectionState) {
                     Log.d(TAG, "Connection state changed: $newState")
+                    if (newState == PeerConnectionState.CONNECTED) {
+                        applyLowLatencyToReceivers()
+                    }
                     callback.onConnectionStateChange(newState)
                 }
 
@@ -461,6 +464,7 @@ class WebRTCClient(
                     if (track is VideoTrack) {
                         Log.d(TAG, "Video track received via onAddTrack")
                         handleVideoTrack(track)
+                        applyLowLatencyToReceivers()
                     }
                 }
             }
@@ -483,6 +487,28 @@ class WebRTCClient(
                 callback.onVideoTrackReceived(videoTrack)
             } catch (e: Exception) {
                 Log.e(TAG, "Error handling video track", e)
+            }
+        }
+    }
+
+    /**
+     * Apply low latency settings to all video receivers.
+     * Caps VCM jitter buffer target delay to 0-200ms.
+     * Called after CONNECTED state and after video track received.
+     *
+     * Without this cap, slow/inconsistent Realtek decoder causes VCM to inflate
+     * jitter buffer to 500-800ms to compensate for decode time variability.
+     */
+    private fun applyLowLatencyToReceivers() {
+        peerConnection?.receivers?.forEach { receiver ->
+            try {
+                if (receiver.track()?.kind() == "video") {
+                    receiver.setMinPlayoutDelay(0)
+                    receiver.setMaxPlayoutDelay(200)
+                    Log.d(TAG, "Low latency: playout delay set to 0-200ms")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "setPlayoutDelay not available: $e")
             }
         }
     }
