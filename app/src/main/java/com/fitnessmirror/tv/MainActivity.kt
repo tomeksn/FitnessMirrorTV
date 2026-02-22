@@ -52,6 +52,7 @@ class MainActivity : AppCompatActivity(),
     private var youtubePlayer: YouTubePlayer? = null
     private var pendingVideoId: String? = null
     private var pendingVideoTime: Float = 0f
+    private var youtubeWebView: android.webkit.WebView? = null
 
     // Network & WebRTC
     private var phoneDiscovery: PhoneDiscovery? = null
@@ -117,7 +118,52 @@ class MainActivity : AppCompatActivity(),
                     pendingVideoId = null
                 }
             }
+
+            override fun onStateChange(
+                player: YouTubePlayer,
+                state: com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState
+            ) {
+                if (state == com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState.PLAYING
+                    || state == com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState.BUFFERING) {
+                    trySetYouTubeQualityLow()
+                }
+            }
         }, iFramePlayerOptions)
+    }
+
+    private fun findWebViewInYouTubePlayer(): android.webkit.WebView? {
+        fun search(viewGroup: android.view.ViewGroup): android.webkit.WebView? {
+            for (i in 0 until viewGroup.childCount) {
+                val child = viewGroup.getChildAt(i)
+                if (child is android.webkit.WebView) return child
+                if (child is android.view.ViewGroup) {
+                    val result = search(child)
+                    if (result != null) return result
+                }
+            }
+            return null
+        }
+        return search(youtubePlayerView)
+    }
+
+    private fun trySetYouTubeQualityLow() {
+        val webView = youtubeWebView ?: findWebViewInYouTubePlayer()?.also { youtubeWebView = it } ?: run {
+            Log.w(TAG, "YT quality: WebView not found")
+            return
+        }
+        val js = """
+            try {
+                if (typeof player !== 'undefined') {
+                    player.setPlaybackQuality('small');
+                    console.log('YT quality set to small (240p)');
+                }
+            } catch(e) { console.log('YT quality error: ' + e); }
+        """.trimIndent()
+        webView.post {
+            webView.evaluateJavascript(js) { result ->
+                Log.d(TAG, "YT quality inject result: $result")
+            }
+        }
     }
 
     private fun initializeWebRTC() {
