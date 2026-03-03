@@ -10,6 +10,46 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
+ * VideoSink wrapper that drops stale frames to enforce maximum rendering latency.
+ *
+ * WebRTC's VCM jitter buffer can inflate to 500-800ms on slow decoders (e.g. Realtek TV).
+ * This sink detects burst frame releases (buffered frames dumped at once) by comparing
+ * wall clock delta vs RTP timestamp delta between consecutive frames.
+ *
+ * When wallDelta << rtpDelta, frames are being released faster than captured → burst detected.
+ * In a burst, only the most recent frame (largest timestampNs) is rendered.
+ *
+ * maxBurstThresholdMs: frame dropped if wall clock delta is less than (rtpDelta - threshold).
+ * Lower = more aggressive dropping. 50ms is a safe default for 30fps video.
+ */
+private class LatencyCapVideoSink(
+    private val target: VideoSink,
+    private val maxBurstThresholdMs: Long = 50
+) : VideoSink {
+    private var lastWallMs = 0L
+    private var lastRtpNs = 0L
+
+    override fun onFrame(frame: VideoFrame) {
+        val nowMs = System.currentTimeMillis()
+        val rtpNs = frame.timestampNs
+
+        if (lastRtpNs > 0 && rtpNs > lastRtpNs) {
+            val rtpDeltaMs = (rtpNs - lastRtpNs) / 1_000_000
+            val wallDeltaMs = nowMs - lastWallMs
+            if (rtpDeltaMs > maxBurstThresholdMs && wallDeltaMs < rtpDeltaMs - maxBurstThresholdMs) {
+                // Burst: VCM releasing buffered frames faster than they were captured
+                // Drop this frame (caller still owns it, no retain needed)
+                return
+            }
+        }
+
+        lastWallMs = nowMs
+        lastRtpNs = rtpNs
+        target.onFrame(frame)
+    }
+}
+
+/**
  * WebRTC client for receiving video stream from FitnessMirror phone app.
  * Acts as answerer - receives offer from phone and creates answer.
  */
@@ -481,8 +521,8 @@ class WebRTCClient(
             try {
                 videoTrack.setEnabled(true)
                 surfaceViewRenderer?.let { renderer ->
-                    videoTrack.addSink(renderer)
-                    Log.d(TAG, "Video track added to renderer")
+                    videoTrack.addSink(LatencyCapVideoSink(renderer))
+                    Log.d(TAG, "Video track added to renderer via LatencyCapVideoSink")
                 }
                 callback.onVideoTrackReceived(videoTrack)
             } catch (e: Exception) {
@@ -500,17 +540,9 @@ class WebRTCClient(
      * jitter buffer to 500-800ms to compensate for decode time variability.
      */
     private fun applyLowLatencyToReceivers() {
-        peerConnection?.receivers?.forEach { receiver ->
-            try {
-                if (receiver.track()?.kind() == "video") {
-                    receiver.setMinPlayoutDelay(0)
-                    receiver.setMaxPlayoutDelay(200)
-                    Log.d(TAG, "Low latency: playout delay set to 0-200ms")
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "setPlayoutDelay not available: $e")
-            }
-        }
+        // setMinPlayoutDelay/setMaxPlayoutDelay unavailable in stream-webrtc-android.
+        // Low latency is enforced via LatencyCapVideoSink added in handleVideoTrack().
+        Log.d(TAG, "Low latency enforced via LatencyCapVideoSink (VCM API not available)")
     }
 
     /**
