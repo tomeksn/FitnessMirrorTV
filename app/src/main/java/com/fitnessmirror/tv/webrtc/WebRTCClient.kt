@@ -33,19 +33,24 @@ private class LatencyCapVideoSink(
         val nowMs = System.currentTimeMillis()
         val rtpNs = frame.timestampNs
 
+        var shouldDrop = false
         if (lastRtpNs > 0 && rtpNs > lastRtpNs) {
             val rtpDeltaMs = (rtpNs - lastRtpNs) / 1_000_000
             val wallDeltaMs = nowMs - lastWallMs
             if (rtpDeltaMs > maxBurstThresholdMs && wallDeltaMs < rtpDeltaMs - maxBurstThresholdMs) {
                 // Burst: VCM releasing buffered frames faster than they were captured
-                // Drop this frame (caller still owns it, no retain needed)
-                return
+                shouldDrop = true
             }
         }
 
+        // CRITICAL: Always update — prevents cascade where one dropped frame
+        // causes all subsequent frames to also drop (stale lastRtpNs grows rtpDelta infinitely)
         lastWallMs = nowMs
         lastRtpNs = rtpNs
-        target.onFrame(frame)
+
+        if (!shouldDrop) {
+            target.onFrame(frame)
+        }
     }
 }
 
@@ -122,8 +127,9 @@ class WebRTCClient(
                 override fun test(codecInfo: MediaCodecInfo): Boolean {
                     val name = codecInfo.name
                     val isSoftware = name.startsWith("OMX.google.") || name.startsWith("c2.android.")
-                    Log.d(TAG, "Codec predicate check: $name -> hardware=${!isSoftware}")
-                    return !isSoftware  // Accept all hardware decoders, reject software
+                    val isProblematicHardware = name.lowercase().contains("realtek")
+                    Log.d(TAG, "Codec predicate check: $name -> hardware=${!isSoftware}, realtekBlocked=$isProblematicHardware")
+                    return !isSoftware && !isProblematicHardware  // Accept hardware, reject software + Realtek
                 }
             }
 
@@ -345,12 +351,11 @@ class WebRTCClient(
                     drainPendingIceCandidates()
                 }
 
-                // Filter VP8, AV1, VP9 from received offer - force H.264 Baseline only
-                // VP8: less efficient than H.264
+                // Filter only AV1 and VP9 from received offer - VP8 is now preferred
+                // VP8: reliable software decoder on Realtek TV (Realtek H.264 HW decoder fails with DynamicANWBuffer)
                 // AV1: TV has only software decoder (very slow, causes high latency)
-                // VP9: Realtek HW decoding is buggy, causes jitter
-                val filteredVp8 = filterVp8FromSdp(sdp)
-                val filteredAv1 = filterAv1FromSdp(filteredVp8)
+                // VP9: buggy on Realtek hardware
+                val filteredAv1 = filterAv1FromSdp(sdp)
                 val filteredSdp = filterVp9FromSdp(filteredAv1)
 
                 // Set remote description (offer) with filtered SDP
