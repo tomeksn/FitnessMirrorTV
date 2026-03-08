@@ -48,10 +48,16 @@ class MainActivity : AppCompatActivity(),
     private var statsRunnable: Runnable? = null
     private val STATS_UPDATE_INTERVAL_MS = 1000L
 
+    // YouTube quality enforcer
+    private var qualityEnforcerHandler: Handler? = null
+    private var qualityEnforcerRunnable: Runnable? = null
+    private val QUALITY_ENFORCE_INTERVAL_MS = 15_000L
+
     // YouTube Player
     private var youtubePlayer: YouTubePlayer? = null
     private var pendingVideoId: String? = null
     private var pendingVideoTime: Float = 0f
+    private var pendingPlay = false
     private var youtubeWebView: android.webkit.WebView? = null
 
     // Network & WebRTC
@@ -105,6 +111,7 @@ class MainActivity : AppCompatActivity(),
             .rel(0)
             .ivLoadPolicy(3)
             .ccLoadPolicy(1)
+            .autoplay(1)
             .build()
 
         youtubePlayerView.initialize(object : AbstractYouTubePlayerListener() {
@@ -115,7 +122,12 @@ class MainActivity : AppCompatActivity(),
                 pendingVideoId?.let { videoId ->
                     Log.d(TAG, "Loading buffered video: $videoId at $pendingVideoTime")
                     player.loadVideo(videoId, pendingVideoTime)
+                    Handler(Looper.getMainLooper()).postDelayed({ player.play() }, 1500)
                     pendingVideoId = null
+                }
+                if (pendingPlay) {
+                    Handler(Looper.getMainLooper()).postDelayed({ player.play() }, 1500)
+                    pendingPlay = false
                 }
             }
 
@@ -123,9 +135,20 @@ class MainActivity : AppCompatActivity(),
                 player: YouTubePlayer,
                 state: com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState
             ) {
-                if (state == com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState.PLAYING
-                    || state == com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState.BUFFERING) {
-                    trySetYouTubeQualityLow()
+                when (state) {
+                    com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState.PLAYING -> {
+                        trySetYouTubeQualityLow()
+                        startQualityEnforcer()
+                    }
+                    com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState.BUFFERING -> {
+                        trySetYouTubeQualityLow()
+                    }
+                    com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState.PAUSED,
+                    com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState.ENDED,
+                    com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState.UNSTARTED -> {
+                        stopQualityEnforcer()
+                    }
+                    else -> {}
                 }
             }
         }, iFramePlayerOptions)
@@ -154,8 +177,12 @@ class MainActivity : AppCompatActivity(),
         val js = """
             try {
                 if (typeof player !== 'undefined') {
+                    if (typeof player.setPlaybackQualityRange === 'function') {
+                        player.setPlaybackQualityRange('small', 'small');
+                    }
                     player.setPlaybackQuality('small');
-                    console.log('YT quality set to small (240p)');
+                    var actual = player.getPlaybackQuality ? player.getPlaybackQuality() : 'unknown';
+                    console.log('YT quality forced to small, actual: ' + actual);
                 }
             } catch(e) { console.log('YT quality error: ' + e); }
         """.trimIndent()
@@ -164,6 +191,24 @@ class MainActivity : AppCompatActivity(),
                 Log.d(TAG, "YT quality inject result: $result")
             }
         }
+    }
+
+    private fun startQualityEnforcer() {
+        stopQualityEnforcer()
+        qualityEnforcerHandler = Handler(Looper.getMainLooper())
+        qualityEnforcerRunnable = object : Runnable {
+            override fun run() {
+                trySetYouTubeQualityLow()
+                qualityEnforcerHandler?.postDelayed(this, QUALITY_ENFORCE_INTERVAL_MS)
+            }
+        }
+        qualityEnforcerHandler?.postDelayed(qualityEnforcerRunnable!!, QUALITY_ENFORCE_INTERVAL_MS)
+    }
+
+    private fun stopQualityEnforcer() {
+        qualityEnforcerRunnable?.let { qualityEnforcerHandler?.removeCallbacks(it) }
+        qualityEnforcerHandler = null
+        qualityEnforcerRunnable = null
     }
 
     private fun initializeWebRTC() {
@@ -331,6 +376,7 @@ class MainActivity : AppCompatActivity(),
             val player = youtubePlayer
             if (player != null) {
                 player.loadVideo(videoId, currentTime)
+                Handler(Looper.getMainLooper()).postDelayed({ player.play() }, 1500)
             } else {
                 Log.d(TAG, "YouTube player not ready - buffering video: $videoId")
                 pendingVideoId = videoId
@@ -343,7 +389,11 @@ class MainActivity : AppCompatActivity(),
         Log.d(TAG, "Video control received: $command, value: $value")
         runOnUiThread {
             when (command) {
-                "play" -> youtubePlayer?.play()
+                "play" -> {
+                    val p = youtubePlayer
+                    if (p != null) p.play()
+                    else pendingPlay = true
+                }
                 "pause" -> youtubePlayer?.pause()
                 "seekTo" -> value?.let { youtubePlayer?.seekTo(it) }
                 "stop" -> youtubePlayer?.pause()
@@ -423,6 +473,7 @@ class MainActivity : AppCompatActivity(),
         super.onDestroy()
 
         stopStatsCollection()
+        stopQualityEnforcer()
         phoneDiscovery?.stopListening()
         signalingClient?.disconnect()
         webrtcClient?.close()
