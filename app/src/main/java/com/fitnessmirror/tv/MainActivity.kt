@@ -100,32 +100,32 @@ class MainActivity : AppCompatActivity(),
 
         // Latency stats display
         latencyText = findViewById(R.id.latency_text)
-
-        shrinkYouTubePlayer()
     }
 
-    @Suppress("DEPRECATION")
-    private fun shrinkYouTubePlayer() {
-        youtubePlayerView.post {
-            val wm = getSystemService(android.content.Context.WINDOW_SERVICE) as android.view.WindowManager
-            val screenSize = android.graphics.Point()
-            wm.defaultDisplay.getSize(screenSize)
-
-            // Force 360p: YouTube selects quality based on actual WebView pixel size
-            val targetW = 640
-            val targetH = 360
-
-            val params = youtubePlayerView.layoutParams
-            params.width = targetW
-            params.height = targetH
-            youtubePlayerView.layoutParams = params
-
-            // Scale visually to fill the screen, anchored at top-left corner
-            youtubePlayerView.pivotX = 0f
-            youtubePlayerView.pivotY = 0f
-            youtubePlayerView.scaleX = screenSize.x.toFloat() / targetW
-            youtubePlayerView.scaleY = screenSize.y.toFloat() / targetH
-            Log.d(TAG, "YouTube player shrunk to ${targetW}x${targetH}, scale=${youtubePlayerView.scaleX}x${youtubePlayerView.scaleY}")
+    private fun shrinkYouTubeIframe() {
+        val webView = youtubeWebView ?: findWebViewInYouTubePlayer()?.also { youtubeWebView = it } ?: run {
+            Log.w(TAG, "YT iframe shrink: WebView not found")
+            return
+        }
+        val js = """
+            (function() {
+                var iframe = document.querySelector('iframe');
+                if (!iframe) { console.log('YT iframe not found yet'); return; }
+                var vw = window.innerWidth;
+                var vh = window.innerHeight;
+                var tw = 640;
+                var th = 360;
+                var sx = vw / tw;
+                var sy = vh / th;
+                iframe.style.cssText = 'position:fixed;top:0;left:0;width:' + tw + 'px;height:' + th + 'px;transform:scale(' + sx + ',' + sy + ');transform-origin:0 0;border:0;';
+                document.body.style.cssText = 'margin:0;padding:0;overflow:hidden;background:#000;';
+                console.log('YT iframe resized to ' + tw + 'x' + th + ' scaled ' + sx + 'x' + sy + ' (viewport ' + vw + 'x' + vh + ')');
+            })();
+        """.trimIndent()
+        webView.post {
+            webView.evaluateJavascript(js) { result ->
+                Log.d(TAG, "YT iframe resize result: $result")
+            }
         }
     }
 
@@ -145,6 +145,8 @@ class MainActivity : AppCompatActivity(),
             override fun onReady(player: YouTubePlayer) {
                 Log.d(TAG, "YouTube player ready")
                 youtubePlayer = player
+                // Shrink iframe for quality control (CSS transform, works on all TVs)
+                Handler(Looper.getMainLooper()).postDelayed({ shrinkYouTubeIframe() }, 1000)
                 // Load video that arrived before player was ready
                 pendingVideoId?.let { videoId ->
                     Log.d(TAG, "Loading buffered video: $videoId at $pendingVideoTime")
@@ -404,6 +406,7 @@ class MainActivity : AppCompatActivity(),
             if (player != null) {
                 player.loadVideo(videoId, currentTime)
                 Handler(Looper.getMainLooper()).postDelayed({ player.play() }, 1500)
+                Handler(Looper.getMainLooper()).postDelayed({ shrinkYouTubeIframe() }, 2000)
             } else {
                 Log.d(TAG, "YouTube player not ready - buffering video: $videoId")
                 pendingVideoId = videoId
