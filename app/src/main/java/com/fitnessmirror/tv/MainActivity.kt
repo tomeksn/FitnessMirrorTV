@@ -100,6 +100,33 @@ class MainActivity : AppCompatActivity(),
 
         // Latency stats display
         latencyText = findViewById(R.id.latency_text)
+
+        shrinkYouTubePlayer()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun shrinkYouTubePlayer() {
+        youtubePlayerView.post {
+            val wm = getSystemService(android.content.Context.WINDOW_SERVICE) as android.view.WindowManager
+            val screenSize = android.graphics.Point()
+            wm.defaultDisplay.getSize(screenSize)
+
+            // Force 360p: YouTube selects quality based on actual WebView pixel size
+            val targetW = 640
+            val targetH = 360
+
+            val params = youtubePlayerView.layoutParams
+            params.width = targetW
+            params.height = targetH
+            youtubePlayerView.layoutParams = params
+
+            // Scale visually to fill the screen, anchored at top-left corner
+            youtubePlayerView.pivotX = 0f
+            youtubePlayerView.pivotY = 0f
+            youtubePlayerView.scaleX = screenSize.x.toFloat() / targetW
+            youtubePlayerView.scaleY = screenSize.y.toFloat() / targetH
+            Log.d(TAG, "YouTube player shrunk to ${targetW}x${targetH}, scale=${youtubePlayerView.scaleX}x${youtubePlayerView.scaleY}")
+        }
     }
 
     private fun initializeYouTubePlayer() {
